@@ -1,0 +1,22 @@
+[package]
+name = "fibertract"
+version = "0.1.0"
+edition = "2021"
+description = "Peripheral nervous system substrate — bidirectional fiber tracts with labeled-line encoding, Weber-law sensory quantization, and use-dependent adaptation"
+license = "MIT OR Apache-2.0"
+keywords = ["neuromorphic", "peripheral", "sensory", "motor", "fiber"]
+categories = ["science", "simulation"]
+
+[dependencies]
+ternary-signal = "0.1"
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+log = "0.4"
+rand = "0.8"
+
+[dev-dependencies]
+env_logger = "0.11"
+
+[features]
+default = ["serde"]
+serde = ["dep:serde", "dep:serde_json", "ternary-signal/serde"]
