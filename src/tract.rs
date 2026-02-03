@@ -253,25 +253,25 @@ impl FiberTract {
                 continue;
             }
 
-            let mut mag = sig.magnitude as u16;
+            let mut mag = sig.magnitude as u32;
 
             // 1. Gain modulation: mag * gain / 128
-            mag = mag * self.gain as u16 / 128;
+            mag = mag * self.gain as u32 / 128;
 
             // 2. Conductivity loss: mag * conductivity / 255
-            mag = mag * self.conductivity as u16 / 255;
+            mag = mag * self.conductivity as u32 / 255;
 
             // 3. Fatigue degradation: mag * (255 - fatigue) / 255
-            mag = mag * (255u16.saturating_sub(self.fatigue as u16)) / 255;
+            mag = mag * (255u32.saturating_sub(self.fatigue as u32)) / 255;
 
             // 4. Jitter noise
             let mut polarity = sig.polarity;
             if self.jitter > 0 {
                 seed = xorshift(seed);
-                let noise = (seed % (self.jitter as u64 / 4 + 1)) as i16;
+                let noise = (seed % (self.jitter as u64 / 4 + 1)) as i32;
                 seed = xorshift(seed);
-                let sign = if seed % 2 == 0 { 1i16 } else { -1i16 };
-                mag = (mag as i16 + noise * sign).clamp(0, 255) as u16;
+                let sign = if seed % 2 == 0 { 1i32 } else { -1i32 };
+                mag = (mag as i32 + noise * sign).clamp(0, 512) as u32;
 
                 // Severe jitter: chance of polarity flip
                 if self.jitter > 200 {
@@ -283,7 +283,7 @@ impl FiberTract {
             }
 
             // 5. Recruitment threshold (size principle)
-            let threshold = 255u16.saturating_sub(self.sensitivity as u16);
+            let threshold = 255u32.saturating_sub(self.sensitivity as u32);
             if mag < threshold {
                 mag = 0;
             }
@@ -291,11 +291,11 @@ impl FiberTract {
             // Clamp to u8
             let target_mag = mag.min(255) as u8;
 
-            // 6. Elasticity smoothing
-            let prev_mag = self.motor_prev[i].magnitude as u16;
-            let smoothed = prev_mag + (target_mag as u16).wrapping_sub(prev_mag)
-                * self.elasticity as u16 / 255;
-            let final_mag = smoothed.min(255) as u8;
+            // 6. Elasticity smoothing (signed to handle decreasing signals)
+            let prev_mag = self.motor_prev[i].magnitude as i32;
+            let delta = target_mag as i32 - prev_mag;
+            let smoothed = prev_mag + delta * self.elasticity as i32 / 255;
+            let final_mag = smoothed.clamp(0, 255) as u8;
 
             let out = if final_mag == 0 {
                 Signal::default()
