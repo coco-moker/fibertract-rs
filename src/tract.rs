@@ -8,6 +8,24 @@ use ternary_signal::Signal;
 
 use crate::weber::weber_quantize;
 
+/// Receptor adaptation mode — phasic vs tonic.
+///
+/// Biological receptors come in two flavors:
+/// - **Phasic** (Pacinian corpuscles, hair cells): respond to changes,
+///   gate out weak sustained signals. Default for higher-level brains.
+/// - **Tonic** (Merkel cells, Ruffini endings, muscle spindles): faithfully
+///   transmit sustained levels. Essential for body-wall mechanoreceptors,
+///   proprioception, and any interface that needs constant signal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum ReceptorMode {
+    /// Phasic: emphasizes changes, sensitivity threshold gates weak signals.
+    #[default]
+    Phasic,
+    /// Tonic: faithfully transmits sustained levels, bypasses sensitivity threshold.
+    Tonic,
+}
+
 /// Biological fiber tract types — labeled lines.
 ///
 /// The channel IS the label. A signal on a nociceptive tract is pain
@@ -167,6 +185,11 @@ pub struct FiberTract {
     /// Strength: max force output (motor) or acuity (sensory).
     pub strength: u8,
 
+    /// Receptor mode: phasic (change-detecting) or tonic (level-tracking).
+    /// Tonic mode bypasses the sensitivity threshold, allowing sustained
+    /// signals to pass through faithfully.
+    pub receptor_mode: ReceptorMode,
+
     // === Adaptation counters ===
 
     /// Lifetime activations (total ticks where tract was active).
@@ -196,6 +219,7 @@ impl FiberTract {
             sensitivity: 128,
             gain: 160, // motor default: amplify
             strength: 128,
+            receptor_mode: ReceptorMode::Phasic,
             lifetime_activations: 0,
             recent_density: 0,
         }
@@ -219,6 +243,7 @@ impl FiberTract {
             sensitivity: 128,
             gain: 100, // sensory default: attenuate
             strength: 128,
+            receptor_mode: ReceptorMode::Phasic,
             lifetime_activations: 0,
             recent_density: 0,
         }
@@ -358,9 +383,13 @@ impl FiberTract {
             }
 
             // 5. Sensitivity threshold (scaled for i32 range)
-            let threshold = (255i64 - self.sensitivity as i64) * 4;
-            if val.abs() < threshold {
-                val = 0;
+            // Tonic receptors bypass threshold — they report absolute levels.
+            // Phasic receptors gate weak signals to emphasize changes.
+            if self.receptor_mode == ReceptorMode::Phasic {
+                let threshold = (255i64 - self.sensitivity as i64) * 4;
+                if val.abs() < threshold {
+                    val = 0;
+                }
             }
 
             // Clamp to i32 range
@@ -503,6 +532,43 @@ mod tests {
         assert_eq!(tract.sensory_signals[0], 0);
         // 600 → weber step 15 → 600, above threshold → passes
         assert!(tract.sensory_signals[1] != 0);
+    }
+
+    #[test]
+    fn tonic_receptor_bypasses_threshold() {
+        let mut tract = FiberTract::new_sensory(FiberTractKind::Mechanoreceptive, 2);
+        tract.gain = 100;        // attenuate (same as worm default)
+        tract.conductivity = 128;
+        tract.jitter = 0;
+        tract.sensitivity = 180; // phasic threshold = (255-180)*4 = 300
+        tract.elasticity = 255;
+        tract.receptor_mode = ReceptorMode::Tonic;
+
+        // Raw 500 → Weber 495 → gain 386 → cond 193
+        // Phasic: 193 < 300 threshold → ZERO
+        // Tonic: threshold bypassed → 193 passes
+        let input = [500, 100];
+        tract.transmit_sensory(&input, 0);
+
+        assert!(tract.sensory_signals[0] != 0, "tonic should pass: {}", tract.sensory_signals[0]);
+        assert!(tract.sensory_signals[1] != 0, "tonic should pass weak too: {}", tract.sensory_signals[1]);
+    }
+
+    #[test]
+    fn phasic_still_gates_by_default() {
+        let mut tract = FiberTract::new_sensory(FiberTractKind::Mechanoreceptive, 1);
+        tract.gain = 100;
+        tract.conductivity = 128;
+        tract.jitter = 0;
+        tract.sensitivity = 180;
+        tract.elasticity = 255;
+        // receptor_mode defaults to Phasic
+
+        let input = [500];
+        tract.transmit_sensory(&input, 0);
+
+        // 500 → 495 → gain 386 → cond 193 → threshold 300 → ZERO
+        assert_eq!(tract.sensory_signals[0], 0, "phasic should gate this");
     }
 
     #[test]

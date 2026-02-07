@@ -51,7 +51,7 @@ pub mod adapt;
 pub mod weber;
 pub mod profile;
 
-pub use tract::{FiberTract, FiberTractKind};
+pub use tract::{FiberTract, FiberTractKind, ReceptorMode};
 pub use bundle::FiberBundle;
 pub use pain::{PainEvent, PainSource};
 pub use profile::LimbProfile;

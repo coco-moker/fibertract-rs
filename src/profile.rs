@@ -9,7 +9,7 @@
 //! appropriate tract dimensions and property defaults.
 
 use crate::bundle::FiberBundle;
-use crate::tract::{FiberTract, FiberTractKind};
+use crate::tract::{FiberTract, FiberTractKind, ReceptorMode};
 
 /// A profile defining the fiber composition of a body region.
 ///
@@ -39,6 +39,8 @@ pub struct TractSpec {
     pub endurance: Option<u8>,
     pub elasticity: Option<u8>,
     pub strength: Option<u8>,
+    /// Receptor mode: phasic (default) or tonic.
+    pub receptor_mode: Option<ReceptorMode>,
 }
 
 impl TractSpec {
@@ -54,6 +56,7 @@ impl TractSpec {
             endurance: None,
             elasticity: None,
             strength: None,
+            receptor_mode: None,
         }
     }
 
@@ -72,6 +75,7 @@ impl TractSpec {
         if let Some(v) = self.endurance { tract.endurance = v; }
         if let Some(v) = self.elasticity { tract.elasticity = v; }
         if let Some(v) = self.strength { tract.strength = v; }
+        if let Some(v) = self.receptor_mode { tract.receptor_mode = v; }
 
         tract
     }
