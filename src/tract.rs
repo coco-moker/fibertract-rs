@@ -195,9 +195,15 @@ pub struct FiberTract {
     /// Lifetime activations (total ticks where tract was active).
     pub lifetime_activations: u64,
 
-    /// Recent activation density (rolling, u8 scaled).
-    /// 0=idle, 255=constant use. Drives adaptation decisions.
+    /// Recent output density (rolling, u8 scaled).
+    /// 0=idle, 255=constant use. Drives fatigue/strength adaptation.
     pub recent_density: u8,
+
+    /// Recent input density (rolling, u8 scaled).
+    /// Tracks stimulation attempts — nonzero input even if output is gated.
+    /// Drives myelination and sensitization: a tract that receives repeated
+    /// stimulation adapts even before it can fully conduct.
+    pub input_density: u8,
 }
 
 impl FiberTract {
@@ -222,6 +228,7 @@ impl FiberTract {
             receptor_mode: ReceptorMode::Phasic,
             lifetime_activations: 0,
             recent_density: 0,
+            input_density: 0,
         }
     }
 
@@ -246,6 +253,7 @@ impl FiberTract {
             receptor_mode: ReceptorMode::Phasic,
             lifetime_activations: 0,
             recent_density: 0,
+            input_density: 0,
         }
     }
 
@@ -260,6 +268,10 @@ impl FiberTract {
         debug_assert!(self.kind.is_efferent());
         let len = input.len().min(self.dim);
         let mut seed = rng_seed;
+
+        // Track input stimulation (independent of output gating)
+        let any_input = input[..len].iter().any(|s| s.polarity != 0 && s.magnitude > 0);
+        self.update_input_density(any_input);
 
         for i in 0..len {
             let sig = input[i];
@@ -350,6 +362,10 @@ impl FiberTract {
         let len = input.len().min(self.dim);
         let mut seed = rng_seed;
 
+        // Track input stimulation (independent of output gating)
+        let any_input = input[..len].iter().any(|&v| v != 0);
+        self.update_input_density(any_input);
+
         for i in 0..len {
             // Weber-law quantization
             let quantized = weber_quantize(input[i]);
@@ -408,6 +424,21 @@ impl FiberTract {
         for i in len..self.dim {
             self.sensory_signals[i] = 0;
             self.sensory_prev[i] = 0;
+        }
+    }
+
+    /// Update rolling input density based on whether input was nonzero.
+    fn update_input_density(&mut self, any_input: bool) {
+        if any_input {
+            let d = self.input_density;
+            self.input_density = d.saturating_add(
+                (255u16.saturating_sub(d as u16) / 16) as u8
+            ).max(d.saturating_add(1));
+        } else {
+            let d = self.input_density;
+            self.input_density = d.saturating_sub(
+                (d as u16 / 16).max(1) as u8
+            );
         }
     }
 

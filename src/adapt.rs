@@ -49,6 +49,15 @@ pub struct AdaptationConfig {
 
     /// Activity density threshold below which a tract is "idle" (0-255).
     pub idle_threshold: u8,
+
+    /// How fast sensitivity increases with repeated input stimulation.
+    /// Biological analog: peripheral sensitization — repeated sub-threshold
+    /// stimulation lowers the activation threshold.
+    pub sensitization_rate: u8,
+
+    /// How fast sensitivity decreases without input stimulation.
+    /// Biological analog: desensitization / denervation.
+    pub desensitization_rate: u8,
 }
 
 impl Default for AdaptationConfig {
@@ -64,6 +73,8 @@ impl Default for AdaptationConfig {
             atrophy_rate: 1,
             atrophy_delay: 50,   // ~50 idle ticks before atrophy
             idle_threshold: 10,  // density below 10 = idle
+            sensitization_rate: 1,
+            desensitization_rate: 1,
         }
     }
 }
@@ -75,29 +86,17 @@ impl Default for AdaptationConfig {
 pub fn adapt_tract(tract: &mut FiberTract, config: &AdaptationConfig) {
     let active = tract.is_active();
     let density = tract.recent_density;
+    let input_density = tract.input_density;
+
+    // === Output-driven adaptation (fatigue, strength, output density) ===
 
     if active {
         tract.lifetime_activations = tract.lifetime_activations.saturating_add(1);
 
-        // Update rolling density: push toward 255
+        // Update rolling output density: push toward 255
         tract.recent_density = density.saturating_add(
             (255u16.saturating_sub(density as u16) / 16) as u8
         ).max(density.saturating_add(1));
-
-        // === Active adaptations ===
-
-        // Myelination: conductivity improves with use
-        tract.conductivity = tract
-            .conductivity
-            .saturating_add(config.myelination_rate);
-
-        // Practice: jitter decreases with consistent use
-        if density > 128 {
-            // Only if sustained activity (not just a single spike)
-            tract.jitter = tract
-                .jitter
-                .saturating_sub(config.jitter_improvement_rate);
-        }
 
         // Fatigue: accumulates during use, tempered by endurance
         let effective_fatigue_rate = if config.fatigue_rate as u16 > tract.endurance as u16 / 32 {
@@ -114,40 +113,69 @@ pub fn adapt_tract(tract: &mut FiberTract, config: &AdaptationConfig) {
                 .saturating_add(config.strengthening_rate);
         }
     } else {
-        // Update rolling density: decay toward 0
+        // Update rolling output density: decay toward 0
         tract.recent_density = density.saturating_sub(
             (density as u16 / 16).max(1) as u8
         );
-
-        // === Idle adaptations ===
 
         // Recovery: fatigue decreases at rest
         let effective_recovery = config.recovery_rate.saturating_add(tract.endurance / 64);
         tract.fatigue = tract.fatigue.saturating_sub(effective_recovery);
 
-        // Demyelination: conductivity degrades without use
-        if density < config.idle_threshold {
+        // Atrophy: strength decays after prolonged disuse
+        if density == 0 && tract.lifetime_activations > 0 {
+            tract.strength = tract
+                .strength
+                .saturating_sub(config.atrophy_rate);
+        }
+    }
+
+    // === Input-driven adaptation (myelination, jitter, sensitivity) ===
+    //
+    // A tract that receives repeated stimulation adapts even before it can
+    // fully conduct. This is biological: repeated stimulation triggers
+    // myelination and lowers activation threshold (sensitization), even
+    // when the nerve can't yet propagate the signal end-to-end.
+
+    let input_active = input_density > config.idle_threshold;
+
+    if input_active {
+        // Myelination: conductivity improves with stimulation
+        tract.conductivity = tract
+            .conductivity
+            .saturating_add(config.myelination_rate);
+
+        // Sensitization: sensitivity increases (recruitment threshold drops)
+        tract.sensitivity = tract
+            .sensitivity
+            .saturating_add(config.sensitization_rate);
+
+        // Practice: jitter decreases with sustained stimulation
+        if input_density > 128 {
+            tract.jitter = tract
+                .jitter
+                .saturating_sub(config.jitter_improvement_rate);
+        }
+    } else {
+        // Demyelination: conductivity degrades without stimulation
+        if input_density == 0 && density < config.idle_threshold {
             tract.conductivity = tract
                 .conductivity
                 .saturating_sub(config.demyelination_rate);
         }
 
+        // Desensitization: sensitivity decreases (threshold rises)
+        if input_density == 0 {
+            tract.sensitivity = tract
+                .sensitivity
+                .saturating_sub(config.desensitization_rate);
+        }
+
         // Jitter increase: precision decays without practice
-        if density < config.idle_threshold {
+        if input_density == 0 && density < config.idle_threshold {
             tract.jitter = tract
                 .jitter
                 .saturating_add(config.jitter_decay_rate);
-        }
-
-        // Atrophy: strength decays after prolonged disuse
-        if density == 0 {
-            // Only atrophy if completely idle for a while
-            // (lifetime_activations > 0 means it was used at some point)
-            if tract.lifetime_activations > 0 {
-                tract.strength = tract
-                    .strength
-                    .saturating_sub(config.atrophy_rate);
-            }
         }
     }
 }
@@ -166,21 +194,29 @@ mod tests {
     use ternary_signal::Signal;
 
     #[test]
-    fn active_tract_myelinates() {
+    fn stimulated_tract_myelinates() {
         let mut tract = FiberTract::new_motor(FiberTractKind::MotorSkeletal, 2);
         let initial_cond = tract.conductivity;
+        let initial_sens = tract.sensitivity;
 
-        // Make it active by putting signals in
-        tract.motor_signals[0] = Signal { polarity: 1, magnitude: 100 };
-
+        // Transmit through the tract to build input_density naturally.
+        // Even if output is gated, the input stimulation drives adaptation.
+        let input = [Signal { polarity: 1, magnitude: 100 }, Signal::default()];
         let config = AdaptationConfig::default();
-        for _ in 0..10 {
+        for i in 0..30 {
+            tract.transmit_motor(&input, i);
             adapt_tract(&mut tract, &config);
         }
 
         assert!(
             tract.conductivity > initial_cond,
-            "conductivity should improve with use"
+            "conductivity should improve with stimulation: {} vs {}",
+            tract.conductivity, initial_cond,
+        );
+        assert!(
+            tract.sensitivity > initial_sens,
+            "sensitivity should increase with stimulation: {} vs {}",
+            tract.sensitivity, initial_sens,
         );
     }
 
